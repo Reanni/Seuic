@@ -1,12 +1,16 @@
 package cn.reanni.seuic
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.ProgressDialog
 import android.bluetooth.BluetoothDevice
 import android.content.Intent
 import android.os.Bundle
+import android.os.CountDownTimer
 import android.util.Log
 import android.view.View
+import android.view.View.GONE
+import android.view.View.VISIBLE
 import android.widget.TextView
 import android.widget.Toast
 import androidx.annotation.IntDef
@@ -23,7 +27,10 @@ import kotlinx.android.synthetic.main.activity_main.*
 /**
  * 东大集成的蓝牙连接
  */
-class MainActivity : AppCompatActivity(), BaseQuickAdapter.OnItemClickListener {
+@Suppress("DEPRECATION")
+@SuppressLint("SetTextI18n")
+class MainActivity : AppCompatActivity(), BaseQuickAdapter.OnItemClickListener,
+    BaseQuickAdapter.OnItemLongClickListener {
 
     companion object {
         private const val ACTION_SEUIC_SCAN_CODE = "cn.reanni.seuic.action.SEUIC_SCAN_CODE"// 东大集成
@@ -74,7 +81,19 @@ class MainActivity : AppCompatActivity(), BaseQuickAdapter.OnItemClickListener {
         }
     }
     private val emptyView: TextView by lazy {
-        layoutInflater.inflate(R.layout.item_device, null) as TextView
+        layoutInflater.inflate(R.layout.layout_empty_view, null) as TextView
+    }
+    private val timer by lazy {
+        object : CountDownTimer(15000, 1000) {
+
+            override fun onTick(millisUntilFinished: Long) {
+            }
+
+            override fun onFinish() {
+                e("api超时机制失效,手动超时")
+                ui(OVERTIME)
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -88,7 +107,8 @@ class MainActivity : AppCompatActivity(), BaseQuickAdapter.OnItemClickListener {
                     rv.layoutManager = LinearLayoutManager(application)
                     rv.adapter = listAdapter.apply {
                         onItemClickListener = this@MainActivity
-//                        emptyView = emptyView
+                        onItemLongClickListener = this@MainActivity
+                        emptyView = this@MainActivity.emptyView
                     }
                 } else {
                     finish()
@@ -106,8 +126,8 @@ class MainActivity : AppCompatActivity(), BaseQuickAdapter.OnItemClickListener {
     fun onClick(view: View) {
         when (view.id) {
             R.id.bt_history -> {
-                tv_result.visibility = View.GONE
-                rv.visibility = View.VISIBLE
+                tv_result.visibility = GONE
+                rv.visibility = VISIBLE
                 emptyView.text = "没有历史蓝牙设备~~"
                 listAdapter.setNewData(historyBluetoothDevices)
             }
@@ -129,6 +149,17 @@ class MainActivity : AppCompatActivity(), BaseQuickAdapter.OnItemClickListener {
         } else {
             showToast("请等搜索结束再点击连接")
         }
+    }
+
+    override fun onItemLongClick(
+        adapter: BaseQuickAdapter<*, *>?, view: View?, position: Int
+    ): Boolean {
+        if (listAdapter.data == historyBluetoothDevices) {
+            showToast("删除历史: ${listAdapter.getItem(position)} 成功")
+            listAdapter.remove(position)
+            Sp.putString(this, SP_KEY_HISTORY, historyBluetoothDevices.toJson())
+        }
+        return true
     }
 
     private fun search() {
@@ -192,7 +223,7 @@ class MainActivity : AppCompatActivity(), BaseQuickAdapter.OnItemClickListener {
             }
 
             override fun onConnectionFailed() { // 工牌连接超时或者被断开，请重试
-                e("工牌连接超时或者被断开，请重试")
+                e("工牌连接超时或者被断开，请重试    connectedAddress: $connectedAddress")
                 runOnUiThread {
                     ui(OVERTIME)
                 }
@@ -207,7 +238,7 @@ class MainActivity : AppCompatActivity(), BaseQuickAdapter.OnItemClickListener {
                     runOnUiThread {
                         tv_result.apply {
                             text = "扫描到的结果：\n$it"
-                            visibility = View.VISIBLE
+                            visibility = VISIBLE
                         }
                     }
                     sendBroadcast(Intent().apply {
@@ -238,11 +269,11 @@ class MainActivity : AppCompatActivity(), BaseQuickAdapter.OnItemClickListener {
 
     private fun ui(@Action action: Int) {
         when (action) {
-            FREE -> ""
+//            FREE -> ""
             SEARCHING -> {
                 tv_address.text = actionAddress; tv_state.text = "搜索中"
-                tv_result.visibility = View.GONE;
-                rv.visibility = View.VISIBLE
+                tv_result.visibility = GONE;
+                rv.visibility = VISIBLE
                 searchBluetoothDevices.clear(); listAdapter.setNewData(searchBluetoothDevices)
                 dialog = ProgressDialog.show(this, "", "搜索中...")
             }
@@ -254,19 +285,23 @@ class MainActivity : AppCompatActivity(), BaseQuickAdapter.OnItemClickListener {
             CONNECTING -> {
                 tv_address.text = actionAddress; tv_state.text = "连接中"
                 dialog = ProgressDialog.show(this, "", "连接中...")
+                timer.start()
             }
             CONNECTED -> {
                 tv_state.text = "连接成功"
                 rv.visibility = View.INVISIBLE
 //                searchBluetoothDevices.clear(); listAdapter.notifyDataSetChanged()
                 dialog.dismiss()
+                timer.cancel()
             }
             OVERTIME -> {
                 tv_state.text = "连接超时"
-                searchBluetoothDevices.clear(); listAdapter.notifyDataSetChanged()
+                rv.visibility = View.INVISIBLE
+//                searchBluetoothDevices.clear(); listAdapter.notifyDataSetChanged()
                 dialog.dismiss()
+                timer.cancel()
             }
-            DISCONNECT -> ""
+//            DISCONNECT -> ""
         }
     }
 
@@ -277,24 +312,5 @@ class MainActivity : AppCompatActivity(), BaseQuickAdapter.OnItemClickListener {
     private fun showToast(body: String) {
         Toast.makeText(application, body, Toast.LENGTH_SHORT).show()
     }
-
-    /*
-    private val searchBluetoothDevices by lazy { mutableListOf<BluetoothDevice>() }
-
-    private val listAdapter by lazy {
-        object : BaseQuickAdapter<BluetoothDevice, BaseViewHolder>(
-            R.layout.item_device, searchBluetoothDevices
-        ) {
-            override fun convert(helper: BaseViewHolder, item: BluetoothDevice?) {
-                helper.setText(R.id.tv_device, item?.address)
-                helper.setBackgroundColor(
-                    R.id.tv_device,
-                    if (helper.layoutPosition % 2 == 0) getColor(R.color.colorAccent)
-                    else getColor(R.color.colorPrimary)
-                )
-            }
-        }
-    }
-    */
 
 }
